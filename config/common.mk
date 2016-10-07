@@ -1,32 +1,36 @@
 PRODUCT_BRAND ?= cyanogenmod
 
-#check device aspect ratio (tablet or phone) to import full screen bootanimation where appropriate
-ifdef SCREEN_RATIO_PROPORTIONATE
-ifeq ($(SCREEN_RATIO_PROPORTIONATE),true)
-# Set bootanimation size to width to differentiate between tablet and phone devices for aspect ratio
-TARGET_BOOTANIMATION_SIZE := $(TARGET_SCREEN_WIDTH)
-endif
-else
+ifneq ($(TARGET_SCREEN_WIDTH) $(TARGET_SCREEN_HEIGHT),$(space))
 # determine the smaller dimension
 TARGET_BOOTANIMATION_SIZE := $(shell \
-	if [ $(TARGET_SCREEN_WIDTH) -lt $(TARGET_SCREEN_HEIGHT) ]; then \
+  if [ $(TARGET_SCREEN_WIDTH) -lt $(TARGET_SCREEN_HEIGHT) ]; then \
     echo $(TARGET_SCREEN_WIDTH); \
   else \
     echo $(TARGET_SCREEN_HEIGHT); \
   fi )
-endif
 
-TARGET_BOOTANIMATION_NAME := $(TARGET_BOOTANIMATION_SIZE)
+# get a sorted list of the sizes
+bootanimation_sizes := $(subst .zip,, $(shell ls vendor/cm/prebuilt/common/bootanimation))
+bootanimation_sizes := $(shell echo -e $(subst $(space),'\n',$(bootanimation_sizes)) | sort -rn)
 
-ifdef SCREEN_RATIO_PROPORTIONATE
-ifeq ($(SCREEN_RATIO_PROPORTIONATE),true)
-PRODUCT_BOOTANIMATION := vendor/cm/prebuilt/common/bootanimation/$(TARGET_SCREEN_ASPECT_RATIO)/$(TARGET_BOOTANIMATION_NAME).zip
-endif
+# find the appropriate size and set
+define check_and_set_bootanimation
+$(eval TARGET_BOOTANIMATION_NAME := $(shell \
+  if [ -z "$(TARGET_BOOTANIMATION_NAME)" ]; then
+    if [ $(1) -le $(TARGET_BOOTANIMATION_SIZE) ]; then \
+      echo $(1); \
+      exit 0; \
+    fi;
+  fi;
+  echo $(TARGET_BOOTANIMATION_NAME); ))
+endef
+$(foreach size,$(bootanimation_sizes), $(call check_and_set_bootanimation,$(size)))
+
+ifeq ($(TARGET_BOOTANIMATION_HALF_RES),true)
+PRODUCT_BOOTANIMATION := vendor/cm/prebuilt/common/bootanimation/halfres/$(TARGET_BOOTANIMATION_NAME).zip
 else
 PRODUCT_BOOTANIMATION := vendor/cm/prebuilt/common/bootanimation/$(TARGET_BOOTANIMATION_NAME).zip
 endif
-ifeq ($(TARGET_BOOTANIMATION_HALF_RES),true)
-PRODUCT_BOOTANIMATION := vendor/cm/prebuilt/common/bootanimation/halfres/$(TARGET_BOOTANIMATION_NAME).zip
 endif
 
 ifdef CM_NIGHTLY
@@ -59,6 +63,11 @@ PRODUCT_PROPERTY_OVERRIDES += \
 PRODUCT_PROPERTY_OVERRIDES += \
     ro.build.selinux=1
 
+# Default notification/alarm sounds
+PRODUCT_PROPERTY_OVERRIDES += \
+    ro.config.notification_sound=Argon.ogg \
+    ro.config.alarm_alert=Helium.ogg
+
 ifneq ($(TARGET_BUILD_VARIANT),user)
 # Thank you, please drive thru!
 PRODUCT_PROPERTY_OVERRIDES += persist.sys.dun.override=0
@@ -88,11 +97,6 @@ PRODUCT_COPY_FILES += \
 PRODUCT_COPY_FILES += \
     vendor/cm/prebuilt/common/bin/otasigcheck.sh:install/bin/otasigcheck.sh
 
-# LCD density backup
-PRODUCT_COPY_FILES += \
-    vendor/cm/prebuilt/common/bin/97-backup.sh:system/addon.d/97-backup.sh \
-    vendor/cm/prebuilt/common/etc/backup.conf:system/etc/backup.conf 
-
 # init.d support
 PRODUCT_COPY_FILES += \
     vendor/cm/prebuilt/common/etc/init.d/00banner:system/etc/init.d/00banner \
@@ -120,22 +124,12 @@ PRODUCT_COPY_FILES += \
 PRODUCT_COPY_FILES += \
     frameworks/base/data/keyboards/Vendor_045e_Product_028e.kl:system/usr/keylayout/Vendor_045e_Product_0719.kl
 
-ifneq ($(TARGET_ARCH),arm64)
-# Viper4Android
-PRODUCT_COPY_FILES += \
-   vendor/cm/prebuilt/common/bin/audio_policy.sh:system/audio_policy.sh \
-   vendor/cm/prebuilt/common/addon.d/95-LolliViPER.sh:system/addon.d/95-LolliViPER.sh \
-   vendor/cm/prebuilt/common/su.d/50viper.sh:system/su.d/50viper.sh \
-   vendor/cm/prebuilt/common/app/Viper4Android/Viper4Android.apk:system/priv-app/Viper4Android/Viper4Android.apk
-endif
-
-# APP REMOVAL SCRIPT
-PRODUCT_COPY_FILES += \
-   vendor/cm/prebuilt/common/addon.d/60-removal.sh:system/addon.d/60-removal.sh
-
 # This is CM!
 PRODUCT_COPY_FILES += \
     vendor/cm/config/permissions/com.cyanogenmod.android.xml:system/etc/permissions/com.cyanogenmod.android.xml
+
+# Include CM audio files
+include vendor/cm/config/cm_audio.mk
 
 # Theme engine
 include vendor/cm/config/themes_common.mk
@@ -149,20 +143,18 @@ PRODUCT_PACKAGES += \
     Development \
     BluetoothExt \
     Profiles \
-    ThemeManagerService
+    ThemeManagerService \
+    WeatherManagerService
 
 # Optional CM packages
 PRODUCT_PACKAGES += \
     libemoji \
-    Terminal
+    Terminal \
+    LiveWallpapersPicker
 
 # Include librsjni explicitly to workaround GMS issue
 PRODUCT_PACKAGES += \
     librsjni
-
-# Omni Apps
-PRODUCT_PACKAGES += \
-    OmniSwitch
 
 # Custom CM packages
 PRODUCT_PACKAGES += \
@@ -173,12 +165,16 @@ PRODUCT_PACKAGES += \
     CMFileManager \
     Eleven \
     LockClock \
+    CMUpdater \
     CyanogenSetupWizard \
     CMSettingsProvider \
     ExactCalculator \
     LiveLockScreenService \
     WeatherProvider \
-    DataUsageProvider
+    DataUsageProvider \
+    WallpaperPicker \
+    SoundRecorder \
+    Screencast
 
 # Exchange support
 PRODUCT_PACKAGES += \
@@ -199,7 +195,18 @@ PRODUCT_PACKAGES += \
     oprofiled \
     sqlite3 \
     strace \
-    pigz
+    pigz \
+    7z \
+    lib7z \
+    bash \
+    bzip2 \
+    curl \
+    powertop \
+    unrar \
+    unzip \
+    vim \
+    wget \
+    zip
 
 # Custom off-mode charger
 ifneq ($(WITH_CM_CHARGER),false)
@@ -340,7 +347,7 @@ endif
 PRODUCT_PROPERTY_OVERRIDES += \
   ro.cm.version=$(CM_VERSION) \
   ro.cm.releasetype=$(CM_BUILDTYPE) \
-  ro.modversion=cm-$(CM_VERSION) \
+  ro.modversion=$(CM_VERSION) \
   ro.cmlegal.url=https://cyngn.com/legal/privacy-policy
 
 -include vendor/cm-priv/keys/keys.mk
